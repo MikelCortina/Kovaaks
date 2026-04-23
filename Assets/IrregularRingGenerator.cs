@@ -1,161 +1,182 @@
-using UnityEngine;
+ï»¿using UnityEngine;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 public class InfiniteProceduralTunnel : MonoBehaviour
 {
-    [Header("Estructura del Túnel")]
-    public int segments = 24;          // Calidad del círculo (Vértices por anillo)
-    public int ringCount = 40;         // Profundidad del túnel (Cuántos anillos lo forman)
-    public float ringSpacing = 1f;     // Distancia entre cada anillo
-    public float baseRadius = 5f;      // Tamaño del túnel
+    private struct RingSnapshot
+    {
+        public Vector3[] localVertices;
+        public float spacingToNext;
+        public float internalZForNoise; // Guardamos esto para poder regenerar el ruido correctamente
+    }
+
+    [Header("Estructura del TÃºnel")]
+    public int segments = 24;
+    public int ringCount = 40;
+    public float ringSpacing = 1f;
+    public float baseRadius = 5f;
     public int ringsBehindPlayer = 5;
 
-    [Header("Irregularidad (Generación de Cueva)")]
-    public float noiseScale = 1.5f;    // Escala del ruido en los ejes X e Y
-    public float noiseZScale = 0.1f;   // Escala del ruido a lo largo del túnel (eje Z)
-    public float noiseStrength = 2f;   // Cuánto sobresalen las rocas
+    [Header("Control de Mutabilidad")]
+    public float changeDistance = 80f; // A partir de aquÃ­ los anillos obedecen al Inspector
+
+    [Header("Irregularidad")]
+    public float noiseScale = 1.5f;
+    public float noiseZScale = 0.1f;
+    public float noiseStrength = 2f;
 
     [Header("Movimiento")]
-    public float speed = 10f;          // Velocidad a la que avanzamos por el túnel
+    public float speed = 10f;
 
     private Mesh mesh;
-    private Vector3[] vertices;
-    private int[] triangles;
-    private Vector2[] uvs;
-
-    private float globalZOffset = 0f;  // Rastrea dónde estamos en el mapa de ruido "infinito"
-
-
+    private List<RingSnapshot> activeRings = new List<RingSnapshot>();
+    private float currentInternalZ = 0f;
+    private float tunnelOffset = 0f;
 
     void Start()
     {
-        // Configuramos la malla
         mesh = new Mesh();
-        mesh.name = "Procedural Tunnel";
+        mesh.name = "Hybrid Mutability Tunnel";
         GetComponent<MeshFilter>().mesh = mesh;
 
-        // Inicializamos los arrays
-        int numVertices = ringCount * (segments + 1);
-        vertices = new Vector3[numVertices];
-        uvs = new Vector2[numVertices];
-        triangles = new int[(ringCount - 1) * segments * 6];
-
-        // 1. PRIMERO calculamos las matemáticas de las conexiones (pero no las aplicamos aún)
-        GenerateTriangles();
-
-        // 2. LUEGO generamos los vértices, que automáticamente llamará al Flat Shading
-        // y aplicará todo a la malla en el orden correcto sin dar errores.
-        UpdateTunnelVertices();
+        for (int i = 0; i < ringCount; i++)
+        {
+            CreateNewRingSnapshot();
+        }
     }
 
     void Update()
     {
-        // 1. Movemos el túnel hacia la cámara (hacia atrás en Z)
-        transform.Translate(0, 0, -speed * Time.deltaTime);
+        tunnelOffset -= speed * Time.deltaTime;
 
-        // 2. Si el túnel ha retrocedido el equivalente a la distancia de un anillo...
-        if (transform.position.z <= -ringSpacing)
+        // 1. LÃ³gica de reciclaje (Spawn/Despawn)
+        if (tunnelOffset <= -activeRings[0].spacingToNext)
         {
-            // Lo teletransportamos hacia adelante para crear el bucle (efecto cinta de correr)
-            transform.position += new Vector3(0, 0, ringSpacing);
+            tunnelOffset += activeRings[0].spacingToNext;
+            activeRings.RemoveAt(0);
+            CreateNewRingSnapshot();
+        }
 
-            // Avanzamos nuestro rastreador de ruido para generar un nuevo trozo de cueva
-            globalZOffset += ringSpacing;
+        // 2. LÃ³gica de MutaciÃ³n DinÃ¡mica por distancia
+        MutateDistantRings();
 
-            // Recalculamos la forma de la malla
-            UpdateTunnelVertices();
+        UpdateMeshGeometry();
+    }
+
+    void MutateDistantRings()
+    {
+        // Calculamos la posiciÃ³n Z actual de cada anillo para saber su distancia
+        float startOffsetZ = 0;
+        for (int i = 0; i < ringsBehindPlayer; i++) startOffsetZ -= activeRings[i].spacingToNext;
+        float currentZ = startOffsetZ + tunnelOffset;
+
+        for (int i = 0; i < activeRings.Count; i++)
+        {
+            // Si el anillo estÃ¡ mÃ¡s lejos de 'changeDistance', lo actualizamos
+            if (currentZ > changeDistance)
+            {
+                UpdateRingData(i);
+            }
+            currentZ += activeRings[i].spacingToNext;
         }
     }
 
-    void UpdateTunnelVertices()
+    // Esta funciÃ³n sobreescribe un anillo existente con los datos nuevos del Inspector
+    void UpdateRingData(int index)
     {
+        RingSnapshot ring = activeRings[index];
+        ring.spacingToNext = ringSpacing; // Actualiza spacing
+
+        for (int s = 0; s <= segments; s++)
+        {
+            float angle = (s / (float)segments) * Mathf.PI * 2f;
+            float cos = Mathf.Cos(angle);
+            float sin = Mathf.Sin(angle);
+
+            float n1 = Mathf.PerlinNoise(cos * noiseScale + 100f, ring.internalZForNoise * noiseZScale);
+            float n2 = Mathf.PerlinNoise(sin * noiseScale + 100f, ring.internalZForNoise * noiseZScale);
+            float noise = (n1 + n2) * 0.5f - 0.5f;
+
+            float r = baseRadius + (noise * noiseStrength);
+            ring.localVertices[s] = new Vector3(cos * r, sin * r, 0);
+        }
+        activeRings[index] = ring;
+    }
+
+    void CreateNewRingSnapshot()
+    {
+        RingSnapshot newRing = new RingSnapshot();
+        newRing.localVertices = new Vector3[segments + 1];
+        newRing.internalZForNoise = currentInternalZ;
+
+        activeRings.Add(newRing);
+        UpdateRingData(activeRings.Count - 1); // Rellena los datos inicialmente
+
+        currentInternalZ += ringSpacing;
+    }
+
+    void UpdateMeshGeometry()
+    {
+        int numVertices = ringCount * (segments + 1);
+        Vector3[] vertices = new Vector3[numVertices];
+        Vector2[] uvs = new Vector2[numVertices];
+
+        float startOffsetZ = 0;
+        for (int i = 0; i < ringsBehindPlayer; i++) startOffsetZ -= activeRings[i].spacingToNext;
+        float currentZ = startOffsetZ + tunnelOffset;
+
         for (int r = 0; r < ringCount; r++)
         {
-            // RESTAMOS los anillos para que la malla empiece detrás de nosotros
-            float localZ = (r - ringsBehindPlayer) * ringSpacing;
-
-            // Calculamos el ruido usando 'r' puro para que la forma sea consistente al reciclar
-            float absoluteZ = globalZOffset + (r * ringSpacing);
-
             for (int s = 0; s <= segments; s++)
             {
-                float angle = (s / (float)segments) * Mathf.PI * 2f;
-                float cos = Mathf.Cos(angle);
-                float sin = Mathf.Sin(angle);
-
-                // TRUCO PARA RUIDO 3D EN UN CILINDRO:
-                // Mezclamos dos ruidos 2D para simular un volumen orgánico sin "costuras"
-                float noise1 = Mathf.PerlinNoise(cos * noiseScale + 100f, absoluteZ * noiseZScale);
-                float noise2 = Mathf.PerlinNoise(sin * noiseScale + 100f, absoluteZ * noiseZScale);
-                float noise = (noise1 + noise2) * 0.5f - 0.5f; // Rango de -0.5 a 0.5
-
-                // Aplicamos la deformación
-                float currentRadius = baseRadius + (noise * noiseStrength);
-
-                // Calculamos la posición X e Y
-                float x = cos * currentRadius;
-                float y = sin * currentRadius;
-
-                // Índice del vértice en el array
                 int index = r * (segments + 1) + s;
-
-                vertices[index] = new Vector3(x, y, localZ);
-
-                // Mapeo básico de texturas (UVs)
+                vertices[index] = new Vector3(activeRings[r].localVertices[s].x, activeRings[r].localVertices[s].y, currentZ);
                 uvs[index] = new Vector2((float)s / segments, (float)r / ringCount);
             }
+            currentZ += activeRings[r].spacingToNext;
         }
 
-        ApplyFlatShading();
+        ApplyFlatMesh(vertices, uvs);
     }
 
-    void GenerateTriangles()
+    void ApplyFlatMesh(Vector3[] vertices, Vector2[] uvs)
     {
+        int[] baseTriangles = GenerateTrianglesIndices();
+        Vector3[] flatVertices = new Vector3[baseTriangles.Length];
+        Vector2[] flatUvs = new Vector2[baseTriangles.Length];
+        int[] flatTriangles = new int[baseTriangles.Length];
+
+        for (int i = 0; i < baseTriangles.Length; i++)
+        {
+            int oldIndex = baseTriangles[i];
+            flatVertices[i] = vertices[oldIndex];
+            flatUvs[i] = uvs[oldIndex];
+            flatTriangles[i] = i;
+        }
+
+        mesh.Clear();
+        mesh.vertices = flatVertices;
+        mesh.uv = flatUvs;
+        mesh.triangles = flatTriangles;
+        mesh.RecalculateNormals();
+    }
+
+    int[] GenerateTrianglesIndices()
+    {
+        int[] tris = new int[(ringCount - 1) * segments * 6];
         int t = 0;
         for (int ring = 0; ring < ringCount - 1; ring++)
         {
             for (int seg = 0; seg < segments; seg++)
             {
-                // Buscamos los 4 vértices que forman un "cuadrado" entre dos anillos
                 int current = ring * (segments + 1) + seg;
                 int nextRing = current + segments + 1;
-
-                // Primer triángulo
-                triangles[t++] = current;
-                triangles[t++] = nextRing;
-                triangles[t++] = nextRing + 1;
-
-                // Segundo triángulo
-                triangles[t++] = current;
-                triangles[t++] = nextRing + 1;
-                triangles[t++] = current + 1;
+                tris[t++] = current; tris[t++] = nextRing; tris[t++] = nextRing + 1;
+                tris[t++] = current; tris[t++] = nextRing + 1; tris[t++] = current + 1;
             }
         }
-
-        // ¡HEMOS BORRADO LA LÍNEA mesh.triangles = triangles; DE AQUÍ!
-    }
-    void ApplyFlatShading()
-    {
-        // Creamos nuevos arrays con el tamaño exacto de los triángulos
-        Vector3[] flatVertices = new Vector3[triangles.Length];
-        Vector2[] flatUvs = new Vector2[triangles.Length];
-        int[] flatTriangles = new int[triangles.Length];
-
-        // "Despegamos" los vértices para que cada triángulo tenga sus propios 3 puntos únicos
-        for (int i = 0; i < triangles.Length; i++)
-        {
-            flatVertices[i] = vertices[triangles[i]];
-            flatUvs[i] = uvs[triangles[i]];
-            flatTriangles[i] = i; // Ahora los índices van de 1 en 1 (0, 1, 2, 3...)
-        }
-
-        // Asignamos la nueva geometría plana a la malla
-        mesh.vertices = flatVertices;
-        mesh.uv = flatUvs;
-        mesh.triangles = flatTriangles;
-
-        // Al recalcular ahora, Unity creará bordes 100% afilados
-        mesh.RecalculateNormals();
+        return tris;
     }
 }

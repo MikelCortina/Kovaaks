@@ -1242,10 +1242,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   segments: 40
-  ringCount: 1000
+  ringCount: 100
   ringSpacing: 5
   baseRadius: 25
   ringsBehindPlayer: 25
+  changeDistance: 80
   noiseScale: 25
   noiseZScale: 25
   noiseStrength: 25
