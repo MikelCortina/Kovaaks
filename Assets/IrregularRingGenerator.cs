@@ -105,17 +105,18 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         activeRings[index] = ring;
     }
 
-    void CreateNewRingSnapshot()
-    {
-        RingSnapshot newRing = new RingSnapshot();
-        newRing.localVertices = new Vector3[segments + 1];
-        newRing.internalZForNoise = currentInternalZ;
+  void CreateNewRingSnapshot()
+{
+    RingSnapshot newRing = new RingSnapshot();
+    newRing.localVertices = new Vector3[segments + 1];
+    newRing.internalZForNoise = currentInternalZ;
+    newRing.spacingToNext = ringSpacing;
 
-        activeRings.Add(newRing);
-        UpdateRingData(activeRings.Count - 1); // Rellena los datos inicialmente
+    activeRings.Add(newRing);
+    UpdateRingData(activeRings.Count - 1); // Rellena tras añadir al final
 
-        currentInternalZ += ringSpacing;
-    }
+    currentInternalZ += ringSpacing;
+}
 
     void UpdateMeshGeometry()
     {

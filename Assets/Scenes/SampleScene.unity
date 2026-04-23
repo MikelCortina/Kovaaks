@@ -19,7 +19,7 @@ RenderSettings:
   m_FogMode: 1
   m_FogDensity: 0.01
   m_LinearFogStart: 15
-  m_LinearFogEnd: 80
+  m_LinearFogEnd: 150
   m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
@@ -269,7 +269,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d4ab2bf76a1ccd14c9c8a6f878550c2e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  sensibilidad: 1
+  sensibilidad: 0.75
   cuerpoJugador: {fileID: 955159695}
 --- !u!1 &410087039
 GameObject:
@@ -573,7 +573,7 @@ Transform:
   m_GameObject: {fileID: 955159694}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: 5, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -1063,13 +1063,38 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   targetPrefab: {fileID: 3248223357887562043, guid: 6fae9ecd3d388e74a9a07d6a958e17be, type: 3}
   playerTransform: {fileID: 955159695}
-  spawnInterval: 4
-  difficultyIncreaseInterval: 10
+  initialSpawnInterval: 1.5
+  minSpawnInterval: 0.2
+  difficultyRampTime: 30
+  difficultyCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
   scaleDuration: 0.5
   shape: 0
-  gridSpacing: 2
-  rows: 3
-  columns: 3
+  gridSpacing: 4.78
+  rows: 5
+  columns: 5
   circleRadius: 5
   circlePoints: 8
 --- !u!4 &1994454464
@@ -1081,7 +1106,7 @@ Transform:
   m_GameObject: {fileID: 1994454462}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 62.5}
+  m_LocalPosition: {x: 0, y: 0, z: 150}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1250,7 +1275,7 @@ MonoBehaviour:
   noiseScale: 25
   noiseZScale: 25
   noiseStrength: 25
-  speed: 50
+  speed: 75
 --- !u!23 &2096920952
 MeshRenderer:
   m_ObjectHideFlags: 0

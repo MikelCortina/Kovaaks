@@ -1,4 +1,4 @@
-using System.Collections; // Necesario para las Corrutinas
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -6,66 +6,64 @@ public class TargetSpawner : MonoBehaviour
 {
     public enum ShapeType { Rectangular, Circular }
 
-    [Header("Configuración General")]
+    [Header("Referencia")]
     public GameObject targetPrefab;
     public Transform playerTransform;
-    public float spawnInterval = 2f;
-    [Tooltip("Tiempo en segundos para que aparezca un objeto extra a la vez")]
-    public float difficultyIncreaseInterval = 10f;
 
-    [Tooltip("Tiempo que tarda el objeto en crecer desde escala 0")]
-    public float scaleDuration = 0.5f; // NUEVO: Duración de la animación de escala
+    [Header("Spawn Continuo")]
+    public float initialSpawnInterval = 1.5f;
+    public float minSpawnInterval = 0.2f;
 
-    [Header("Configuración de Forma")]
+    [Tooltip("Cada cuantos segundos aumenta la dificultad")]
+    public float difficultyRampTime = 30f;
+
+    [Tooltip("Curva de dificultad (X = tiempo, Y = velocidad)")]
+    public AnimationCurve difficultyCurve = AnimationCurve.Linear(0, 0, 1, 1);
+
+    [Header("Animación")]
+    public float scaleDuration = 0.5f;
+
+    [Header("Forma")]
     public ShapeType shape = ShapeType.Rectangular;
     public float gridSpacing = 2f;
     public int rows = 3;
     public int columns = 3;
+
     public float circleRadius = 5f;
     public int circlePoints = 8;
 
     private float spawnTimer;
-    private float difficultyTimer;
-    private int targetsToSpawn = 1; // Empezamos spawneando solo 1
+    private float gameTime;
 
     void Update()
     {
-        // Aumentar la cantidad de objetos cada 10 segundos
-        difficultyTimer += Time.deltaTime;
-        if (difficultyTimer >= difficultyIncreaseInterval)
-        {
-            targetsToSpawn++;
-            difficultyTimer = 0f;
-        }
+        gameTime += Time.deltaTime;
 
-        // Spawneo regular
+        float difficultyPercent = Mathf.Clamp01(gameTime / difficultyRampTime);
+        float curveValue = difficultyCurve.Evaluate(difficultyPercent);
+
+        float currentInterval = Mathf.Lerp(initialSpawnInterval, minSpawnInterval, curveValue);
+
         spawnTimer += Time.deltaTime;
-        if (spawnTimer >= spawnInterval)
+
+        if (spawnTimer >= currentInterval)
         {
-            SpawnTargets();
+            SpawnOne();
             spawnTimer = 0f;
         }
     }
 
-    void SpawnTargets()
+    void SpawnOne()
     {
-        // 1. Obtenemos todas las celdas posibles
-        List<Vector3> allSpawnPoints = GetAllSpawnPoints();
+        List<Vector3> points = GetAllSpawnPoints();
 
-        // 2. Limitamos para no spawnear más de lo que la cuadrícula permite
-        int spawnCount = Mathf.Min(targetsToSpawn, allSpawnPoints.Count);
+        if (points.Count == 0) return;
 
-        // 3. Barajamos la lista para elegir celdas aleatorias
-        ShuffleList(allSpawnPoints);
+        Vector3 spawnPos = points[Random.Range(0, points.Count)];
 
-        // 4. EL TRUCO: Calculamos la dirección desde el CENTRO del spawner, no desde el objeto.
-        Vector3 parallelDirection = (playerTransform.position - transform.position).normalized;
+        Vector3 direction = (playerTransform.position - transform.position).normalized;
 
-        // 5. Instanciamos solo la cantidad de objetos que toca
-        for (int i = 0; i < spawnCount; i++)
-        {
-            InstantiateTarget(allSpawnPoints[i], parallelDirection);
-        }
+        InstantiateTarget(spawnPos, direction);
     }
 
     List<Vector3> GetAllSpawnPoints()
@@ -75,6 +73,7 @@ public class TargetSpawner : MonoBehaviour
         if (shape == ShapeType.Rectangular)
         {
             Vector3 startPos = transform.position - new Vector3((columns - 1) * gridSpacing / 2f, (rows - 1) * gridSpacing / 2f, 0);
+
             for (int x = 0; x < columns; x++)
             {
                 for (int y = 0; y < rows; y++)
@@ -83,13 +82,17 @@ public class TargetSpawner : MonoBehaviour
                 }
             }
         }
-        else if (shape == ShapeType.Circular)
+        else
         {
             float angleStep = 360f / circlePoints;
+
             for (int i = 0; i < circlePoints; i++)
             {
                 float angle = i * angleStep * Mathf.Deg2Rad;
-                points.Add(transform.position + new Vector3(Mathf.Cos(angle) * circleRadius, Mathf.Sin(angle) * circleRadius, 0));
+
+                points.Add(transform.position +
+                    new Vector3(Mathf.Cos(angle) * circleRadius,
+                                Mathf.Sin(angle) * circleRadius, 0));
             }
         }
 
@@ -99,68 +102,47 @@ public class TargetSpawner : MonoBehaviour
     void InstantiateTarget(Vector3 position, Vector3 direction)
     {
         GameObject newTarget = Instantiate(targetPrefab, position, Quaternion.identity);
-        TargetMovement movementScript = newTarget.GetComponent<TargetMovement>();
 
-        if (movementScript != null)
-        {
-            movementScript.SetDirection(direction);
-        }
+        TargetMovement movement = newTarget.GetComponent<TargetMovement>();
 
-        // NUEVO: Iniciar la corrutina para escalar el objeto
+        if (movement != null)
+            movement.SetDirection(direction);
+
         StartCoroutine(ScaleUpAnimation(newTarget.transform));
     }
 
-    // NUEVO: Corrutina que maneja el crecimiento
-    IEnumerator ScaleUpAnimation(Transform targetTransform)
+    IEnumerator ScaleUpAnimation(Transform t)
     {
-        // Guardamos la escala original que tiene el prefab
         Vector3 finalScale = targetPrefab.transform.localScale;
 
-        // Empezamos con escala 0
-        targetTransform.localScale = Vector3.zero;
+        t.localScale = Vector3.zero;
 
         float timer = 0f;
 
         while (timer < scaleDuration)
         {
-            // Comprobamos si el objeto fue destruido antes de terminar de crecer
-            if (targetTransform == null) yield break;
+            if (t == null) yield break;
 
             timer += Time.deltaTime;
 
-            // Calculamos el progreso (de 0 a 1)
             float percent = timer / scaleDuration;
 
-            // Interpolamos desde Vector3.zero hasta la escala final
-            targetTransform.localScale = Vector3.Lerp(Vector3.zero, finalScale, percent);
+            t.localScale = Vector3.Lerp(Vector3.zero, finalScale, percent);
 
-            // Esperamos al siguiente frame
             yield return null;
         }
 
-        // Aseguramos que termine exactamente en la escala final
-        if (targetTransform != null)
-        {
-            targetTransform.localScale = finalScale;
-        }
-    }
-
-    void ShuffleList(List<Vector3> list)
-    {
-        for (int i = 0; i < list.Count; i++)
-        {
-            Vector3 temp = list[i];
-            int randomIndex = Random.Range(i, list.Count);
-            list[i] = list[randomIndex];
-            list[randomIndex] = temp;
-        }
+        if (t != null)
+            t.localScale = finalScale;
     }
 
     void OnDrawGizmos()
     {
         Gizmos.color = Color.cyan;
-        List<Vector3> points = GetAllSpawnPoints();
-        foreach (Vector3 p in points)
+
+        var points = GetAllSpawnPoints();
+
+        foreach (var p in points)
         {
             Gizmos.DrawWireSphere(p, 0.3f);
         }

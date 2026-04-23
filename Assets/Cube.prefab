@@ -9,6 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4910588463868169129}
+  - component: {fileID: 2289583112609098585}
   - component: {fileID: 5721877616963234735}
   - component: {fileID: 2037099407242336316}
   - component: {fileID: 2466653145415688012}
@@ -30,11 +31,32 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -0.04243779, y: 3.9581466, z: 113.505226}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 4, y: 4, z: 4}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2289583112609098585
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3248223357887562043}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cb637128df2bfeb45a99c374db324938, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  fragmentCount: 6
+  noiseScale: 8
+  noiseStrength: 2
+  explosionForce: 5
+  explosionTorque: 3
+  fragmentLifetime: 0.075
+  shrinkDelay: 0
+  fragmentMaterial: {fileID: 2100000, guid: 1184aed09ce91b346a596927de52c751, type: 2}
+  fragmentDepth: 4
 --- !u!114 &5721877616963234735
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -47,7 +69,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7da1724d146ae3a4c914dbbc578d1f70, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  speed: 25
+  speed: 100
 --- !u!33 &2037099407242336316
 MeshFilter:
   m_ObjectHideFlags: 0
