@@ -1,19 +1,25 @@
 using UnityEngine;
 
-public class TargetMovement : MonoBehaviour
+public class EnemyCore : MonoBehaviour
 {
-    public float speed = 5f;
-    private Vector3 moveDirection;
+    public enum HealthType { OneHitKill, FocusLaser }
 
+    [Header("Configuración de Vida y Daño")]
+    public HealthType healthType = HealthType.OneHitKill;
+    public float requiredFocusTime = 1.5f;
+    private float currentFocusTime = 0f;
+
+    [Header("Movimiento")]
+    public float speed = 5f;
+
+    private Vector3 moveDirection;
     private Vector3 basePosition;
     private InfiniteProceduralTunnel tunnelRef;
-    private TargetSpawner spawnerRef; // Referencia al Spawner para mandar la puntuación
-
-    private bool hasBeenProcessed = false; // Evita puntuar dos veces
+    private TargetSpawner spawnerRef;
+    private bool isDeadOrMissed = false;
 
     public Vector3 MoveDirection => moveDirection;
 
-    // NUEVO: Añadimos el TargetSpawner al Initialize
     public void Initialize(Vector3 startPos, Vector3 direction, InfiniteProceduralTunnel tunnel, TargetSpawner spawner)
     {
         basePosition = startPos;
@@ -26,18 +32,16 @@ public class TargetMovement : MonoBehaviour
 
     void LateUpdate()
     {
+        if (isDeadOrMissed) return;
+
         basePosition += moveDirection * speed * Time.deltaTime;
         UpdateVisualPosition();
 
-        // Si el cubo ha pasado por detrás de la cámara del jugador (se considera fallo)
-        if (!hasBeenProcessed && spawnerRef != null)
+        if (spawnerRef != null && basePosition.z < spawnerRef.playerTransform.position.z - 2f)
         {
-            if (basePosition.z < spawnerRef.playerTransform.position.z - 2f)
-            {
-                hasBeenProcessed = true;
-                spawnerRef.RegisterEnemyMissed();
-                Destroy(gameObject); // Lo destruimos para limpiar memoria
-            }
+            isDeadOrMissed = true;
+            spawnerRef.RegisterEnemyMissed();
+            Destroy(gameObject);
         }
     }
 
@@ -47,7 +51,6 @@ public class TargetMovement : MonoBehaviour
         {
             Vector2 offset = tunnelRef.GetCurveOffset(basePosition.z);
             Vector3 finalPos = new Vector3(basePosition.x + offset.x, basePosition.y + offset.y, basePosition.z);
-
             transform.position = finalPos;
 
             float lookAheadZ = basePosition.z - 1f;
@@ -55,10 +58,7 @@ public class TargetMovement : MonoBehaviour
             Vector3 finalPosAhead = new Vector3(basePosition.x + offsetAhead.x, basePosition.y + offsetAhead.y, lookAheadZ);
 
             Vector3 pathDirection = (finalPosAhead - finalPos).normalized;
-            if (pathDirection != Vector3.zero)
-            {
-                transform.rotation = Quaternion.LookRotation(pathDirection);
-            }
+            if (pathDirection != Vector3.zero) transform.rotation = Quaternion.LookRotation(pathDirection);
         }
         else
         {
@@ -66,16 +66,44 @@ public class TargetMovement : MonoBehaviour
         }
     }
 
-    // Esta es la función a la que llamas cuando le disparas
-    public void TakeDamage()
+    public void TakeDamage(Vector3 impactPoint, Vector3 impactDir, float force)
     {
-        if (!hasBeenProcessed)
-        {
-            hasBeenProcessed = true;
-            if (spawnerRef != null) spawnerRef.RegisterEnemyDestroyed();
+        if (isDeadOrMissed) return;
+        if (healthType == HealthType.OneHitKill) Die(impactPoint, impactDir, force);
+    }
 
-            GetComponent<ShatterOnDestroy>().Shatter(); // Tu script de rotura
-            // Asumo que tu script Shatter destruye o desactiva este GameObject
+    public void ReceiveFocus(float deltaTime, Vector3 impactPoint, Vector3 impactDir, float force)
+    {
+        if (isDeadOrMissed) return;
+
+        if (healthType == HealthType.FocusLaser)
+        {
+            currentFocusTime += deltaTime;
+            if (currentFocusTime >= requiredFocusTime) Die(impactPoint, impactDir, force);
+        }
+        else if (healthType == HealthType.OneHitKill)
+        {
+            Die(impactPoint, impactDir, force);
+        }
+    }
+
+    private void Die(Vector3 impactPoint, Vector3 impactDir, float force)
+    {
+        isDeadOrMissed = true;
+        if (spawnerRef != null) spawnerRef.RegisterEnemyDestroyed();
+
+        // NUEVO: Buscamos el script de romper en los hijos (donde está la malla)
+        ShatterOnDestroy shatter = GetComponentInChildren<ShatterOnDestroy>();
+        if (shatter != null)
+        {
+            shatter.Shatter(impactPoint, impactDir, force);
+
+            // Una vez que el hijo se rompe en pedazos, destruimos todo el objeto Padre
+            Destroy(gameObject, 0.05f);
+        }
+        else
+        {
+            Destroy(gameObject);
         }
     }
 }

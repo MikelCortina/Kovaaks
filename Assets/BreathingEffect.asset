@@ -49,4 +49,4 @@ MonoBehaviour:
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
   breathingAmplitude: 5
-  breathingSpeed: 3.33
+  breathingSpeed: 6

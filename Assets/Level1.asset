@@ -12,25 +12,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7168465d8757ee242b2ccf4e089e84aa, type: 3}
   m_Name: Level1
   m_EditorClassIdentifier: 
-  totalEnemiesToSpawn: 100
-  startSpawnInterval: 2
-  endSpawnInterval: 0.4
+  totalEnemiesToSpawn: 300
+  enemyPool:
+  - enemyPrefab: {fileID: 4466582487240191407, guid: 8d85daa5371dc1a4aa94ea3587b06f23, type: 3}
+    spawnWeight: 1
+    minLevelProgress: 0
+  startSpawnInterval: 1
+  endSpawnInterval: 0.75
   spawnRateCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
       value: 0
-      inSlope: 0
-      outSlope: 1
+      inSlope: 2
+      outSlope: 2
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 1
+      time: 0.6124878
       value: 1
-      inSlope: 1
+      inSlope: 0
       outSlope: 0
       tangentMode: 0
       weightedMode: 0
@@ -40,7 +44,20 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   levelEvents:
-  - spawnThreshold: 4
+  - spawnThreshold: 25
     effectsToAdd:
+    - {fileID: 11400000, guid: d6ee506b05d41174dbcea92cbf04b862, type: 2}
+    effectsToRemove: []
+  - spawnThreshold: 50
+    effectsToAdd:
+    - {fileID: 11400000, guid: d6ee506b05d41174dbcea92cbf04b862, type: 2}
     - {fileID: 11400000, guid: 2e7a2027b702d3445a13c0aa52713a5c, type: 2}
+    effectsToRemove: []
+  - spawnThreshold: 75
+    effectsToAdd:
+    - {fileID: 11400000, guid: d6ee506b05d41174dbcea92cbf04b862, type: 2}
+    - {fileID: 11400000, guid: 2e7a2027b702d3445a13c0aa52713a5c, type: 2}
+    - {fileID: 11400000, guid: d9e8471324f4f0145b7e06c7c862197b, type: 2}
+    - {fileID: 11400000, guid: e697e1cdadce45b43b69b59940bf0195, type: 2}
+    - {fileID: 11400000, guid: 4d56a350c8a828742b3b1365d2cf1157, type: 2}
     effectsToRemove: []

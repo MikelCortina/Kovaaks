@@ -51,12 +51,18 @@ MonoBehaviour:
   fragmentCount: 6
   noiseScale: 8
   noiseStrength: 2
-  explosionForce: 5
-  explosionTorque: 3
-  fragmentLifetime: 0.075
+  explosionForce: 40
+  explosionTorque: 10
+  fragmentLifetime: 1
   shrinkDelay: 0
   fragmentMaterial: {fileID: 2100000, guid: 1184aed09ce91b346a596927de52c751, type: 2}
-  fragmentDepth: 4
+  fragmentDepth: 3
+  impactRadiusMultiplier: 0.85
+  normalForceWeight: 0.75
+  radialForceWeight: 3
+  randomForceWeight: 0.15
+  nearSizeMultiplier: 2
+  farSizeMultiplier: 1
 --- !u!114 &5721877616963234735
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -69,6 +75,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7da1724d146ae3a4c914dbbc578d1f70, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  healthType: 1
+  requiredFocusTime: 0.33
   speed: 100
 --- !u!33 &2037099407242336316
 MeshFilter:

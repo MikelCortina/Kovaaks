@@ -12,13 +12,13 @@ public class TargetSpawner : MonoBehaviour
     public bool autoStartLevel = true;
     public TunnelEffectController effectController;
 
-    [Header("Referencia")]
-    public GameObject targetPrefab;
+    [Header("Referencia Fallback")]
+    [Tooltip("Prefab por defecto por si el nivel no tiene enemigos configurados")]
+    public GameObject defaultTargetPrefab;
     public Transform playerTransform;
     public InfiniteProceduralTunnel tunnel;
 
-    [Header("Forma y Animación")]
-    public float scaleDuration = 0.5f;
+    [Header("Forma y Cuadrícula")]
     public ShapeType shape = ShapeType.Rectangular;
     public float gridSpacing = 2f;
     public int rows = 3;
@@ -27,11 +27,8 @@ public class TargetSpawner : MonoBehaviour
     public int circlePoints = 8;
 
     [Header("Eventos de UI")]
-    [Tooltip("Se dispara al terminar el nivel")]
     public UnityEvent<float> OnLevelCompleted;
-
-    [Tooltip("Se dispara EN TIEMPO REAL cada vez que la puntuación cambia")]
-    public UnityEvent<float> OnScoreChanged; // NUEVO EVENTO
+    public UnityEvent<float> OnScoreChanged;
 
     private bool isLevelActive = false;
     private float spawnTimer;
@@ -55,11 +52,7 @@ public class TargetSpawner : MonoBehaviour
 
     public void StartLevel()
     {
-        if (currentLevel == null)
-        {
-            Debug.LogError("No hay un LevelDataSO asignado en el TargetSpawner.");
-            return;
-        }
+        if (currentLevel == null) return;
 
         enemiesSpawned = 0;
         enemiesDestroyed = 0;
@@ -67,26 +60,16 @@ public class TargetSpawner : MonoBehaviour
         spawnTimer = 0f;
         isLevelActive = true;
 
-        UpdateScoreUI(); // Reseteamos la UI al 100% al empezar
-
-        Debug.Log("¡Nivel Iniciado! Total enemigos: " + currentLevel.totalEnemiesToSpawn);
+        UpdateScoreUI();
     }
 
     public void ResetAndStartLevel()
     {
         isLevelActive = false;
+        EnemyCore[] activeEnemies = FindObjectsOfType<EnemyCore>();
+        foreach (EnemyCore enemy in activeEnemies) Destroy(enemy.gameObject);
 
-        TargetMovement[] activeEnemies = FindObjectsOfType<TargetMovement>();
-        foreach (TargetMovement enemy in activeEnemies)
-        {
-            Destroy(enemy.gameObject);
-        }
-
-        if (effectController != null)
-        {
-            effectController.ChangeEffects(new List<TunnelEffectSO>(effectController.startingEffects));
-        }
-
+        if (effectController != null) effectController.ChangeEffects(new List<TunnelEffectSO>(effectController.startingEffects));
         StartLevel();
     }
 
@@ -96,8 +79,7 @@ public class TargetSpawner : MonoBehaviour
         {
             float maxTunnelLength = tunnel.ringCount * tunnel.ringSpacing;
             float maxAllowedZ = tunnel.transform.position.z + maxTunnelLength - 1f;
-            float safeZ = Mathf.Min(logicalPosition.z, maxAllowedZ);
-            logicalPosition.z = safeZ;
+            logicalPosition.z = Mathf.Min(logicalPosition.z, maxAllowedZ);
 
             Vector2 spawnerOffset = tunnel.GetCurveOffset(logicalPosition.z);
             Vector3 curvedPos = new Vector3(logicalPosition.x + spawnerOffset.x, logicalPosition.y + spawnerOffset.y, logicalPosition.z);
@@ -127,12 +109,9 @@ public class TargetSpawner : MonoBehaviour
                     spawnTimer = 0f;
                 }
             }
-            else
+            else if (enemiesDestroyed + enemiesMissed >= currentLevel.totalEnemiesToSpawn)
             {
-                if (enemiesDestroyed + enemiesMissed >= currentLevel.totalEnemiesToSpawn)
-                {
-                    EndLevel();
-                }
+                EndLevel();
             }
         }
     }
@@ -145,10 +124,54 @@ public class TargetSpawner : MonoBehaviour
         Vector3 spawnPos = points[Random.Range(0, points.Count)];
         Vector3 direction = Vector3.back;
 
-        InstantiateTarget(spawnPos, direction);
+        // NUEVO: Elegimos el prefab inteligente
+        GameObject prefabToSpawn = GetRandomEnemyPrefabBasedOnProgress();
+
+        GameObject newTarget = Instantiate(prefabToSpawn, spawnPos, Quaternion.identity);
+        EnemyCore core = newTarget.GetComponent<EnemyCore>();
+
+        if (core != null)
+        {
+            core.Initialize(spawnPos, direction, tunnel, this);
+        }
+
+        // Mini animación de aparición (escalado)
+        StartCoroutine(ScaleUpAnimation(newTarget.transform, newTarget.transform.localScale));
 
         enemiesSpawned++;
         CheckLevelEvents(enemiesSpawned);
+    }
+
+    // NUEVO: Lógica para elegir qué enemigo spawnear
+    private GameObject GetRandomEnemyPrefabBasedOnProgress()
+    {
+        if (currentLevel.enemyPool.Count == 0) return defaultTargetPrefab;
+
+        float progress = (float)enemiesSpawned / currentLevel.totalEnemiesToSpawn;
+        List<EnemyPoolItem> validEnemies = new List<EnemyPoolItem>();
+        float totalWeight = 0f;
+
+        // Filtramos los que ya se han desbloqueado
+        foreach (var enemy in currentLevel.enemyPool)
+        {
+            if (progress >= enemy.minLevelProgress)
+            {
+                validEnemies.Add(enemy);
+                totalWeight += enemy.spawnWeight;
+            }
+        }
+
+        if (validEnemies.Count == 0) return defaultTargetPrefab;
+
+        // Ruleta aleatoria basada en pesos
+        float randomValue = Random.Range(0, totalWeight);
+        foreach (var enemy in validEnemies)
+        {
+            randomValue -= enemy.spawnWeight;
+            if (randomValue <= 0f) return enemy.enemyPrefab;
+        }
+
+        return validEnemies[0].enemyPrefab;
     }
 
     private void CheckLevelEvents(int currentCount)
@@ -168,41 +191,28 @@ public class TargetSpawner : MonoBehaviour
     public void RegisterEnemyDestroyed()
     {
         enemiesDestroyed++;
-        UpdateScoreUI(); // NUEVO: Actualizamos UI
+        UpdateScoreUI();
     }
 
     public void RegisterEnemyMissed()
     {
         enemiesMissed++;
-        UpdateScoreUI(); // NUEVO: Actualizamos UI
+        UpdateScoreUI();
     }
 
-    // NUEVO: Calcula el porcentaje actual y avisa al Canvas
     private void UpdateScoreUI()
     {
         int processed = enemiesDestroyed + enemiesMissed;
-        float currentAccuracy = 100f; // Por defecto empezamos al 100%
-
-        if (processed > 0)
-        {
-            currentAccuracy = ((float)enemiesDestroyed / processed) * 100f;
-        }
-
+        float currentAccuracy = 100f;
+        if (processed > 0) currentAccuracy = ((float)enemiesDestroyed / processed) * 100f;
         OnScoreChanged?.Invoke(currentAccuracy);
     }
 
     private void EndLevel()
     {
         isLevelActive = false;
-
         float percentage = 0f;
-        if (currentLevel.totalEnemiesToSpawn > 0)
-        {
-            percentage = ((float)enemiesDestroyed / currentLevel.totalEnemiesToSpawn) * 100f;
-        }
-
-        Debug.Log($"¡NIVEL COMPLETADO! Puntuación: {percentage}% ({enemiesDestroyed} aciertos, {enemiesMissed} fallos)");
-
+        if (currentLevel.totalEnemiesToSpawn > 0) percentage = ((float)enemiesDestroyed / currentLevel.totalEnemiesToSpawn) * 100f;
         OnLevelCompleted?.Invoke(percentage);
     }
 
@@ -213,19 +223,14 @@ public class TargetSpawner : MonoBehaviour
         if (shape == ShapeType.Rectangular)
         {
             Vector3 startPos = center - new Vector3((columns - 1) * gridSpacing / 2f, (rows - 1) * gridSpacing / 2f, 0);
-
             for (int x = 0; x < columns; x++)
             {
-                for (int y = 0; y < rows; y++)
-                {
-                    points.Add(startPos + new Vector3(x * gridSpacing, y * gridSpacing, 0));
-                }
+                for (int y = 0; y < rows; y++) points.Add(startPos + new Vector3(x * gridSpacing, y * gridSpacing, 0));
             }
         }
         else
         {
             float angleStep = 360f / circlePoints;
-
             for (int i = 0; i < circlePoints; i++)
             {
                 float angle = i * angleStep * Mathf.Deg2Rad;
@@ -235,34 +240,19 @@ public class TargetSpawner : MonoBehaviour
         return points;
     }
 
-    void InstantiateTarget(Vector3 logicalSpawnPos, Vector3 direction)
+    IEnumerator ScaleUpAnimation(Transform t, Vector3 finalScale)
     {
-        GameObject newTarget = Instantiate(targetPrefab, logicalSpawnPos, Quaternion.identity);
-        TargetMovement movement = newTarget.GetComponent<TargetMovement>();
-
-        if (movement != null)
-        {
-            movement.Initialize(logicalSpawnPos, direction, tunnel, this);
-        }
-
-        StartCoroutine(ScaleUpAnimation(newTarget.transform));
-    }
-
-    IEnumerator ScaleUpAnimation(Transform t)
-    {
-        Vector3 finalScale = targetPrefab.transform.localScale;
         t.localScale = Vector3.zero;
         float timer = 0f;
+        float dur = 0.5f;
 
-        while (timer < scaleDuration)
+        while (timer < dur)
         {
             if (t == null) yield break;
             timer += Time.deltaTime;
-            float percent = timer / scaleDuration;
-            t.localScale = Vector3.Lerp(Vector3.zero, finalScale, percent);
+            t.localScale = Vector3.Lerp(Vector3.zero, finalScale, timer / dur);
             yield return null;
         }
-
         if (t != null) t.localScale = finalScale;
     }
 
@@ -275,15 +265,11 @@ public class TargetSpawner : MonoBehaviour
         {
             basePos.x = tunnel.transform.position.x;
             basePos.y = tunnel.transform.position.y;
-
-            float maxTunnelLength = tunnel.ringCount * tunnel.ringSpacing;
-            float maxAllowedZ = tunnel.transform.position.z + maxTunnelLength - 1f;
+            float maxAllowedZ = tunnel.transform.position.z + (tunnel.ringCount * tunnel.ringSpacing) - 1f;
             basePos.z = Mathf.Min(basePos.z, maxAllowedZ);
         }
 
-        List<Vector3> logicPoints = GetLogicalSpawnPoints(basePos);
-
-        foreach (var p in logicPoints)
+        foreach (var p in GetLogicalSpawnPoints(basePos))
         {
             Vector3 drawPos = p;
             if (tunnel != null)

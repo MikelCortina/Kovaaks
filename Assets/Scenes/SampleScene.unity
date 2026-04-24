@@ -660,13 +660,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 34c8b3886ce202d47bd4c258e6486e64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  damage: 10
+  playerCamera: {fileID: 330585545}
   range: 100
-  fpsCamera: {fileID: 330585545}
-  muzzleFlash: {fileID: 0}
-  audioSource: {fileID: 1845401525}
-  shootSound: {fileID: 8300000, guid: de69c992fb86e9742a647773d499f1db, type: 3}
-  hitMarkerSound: {fileID: 8300000, guid: d57fed6b4055d2e44bf8f49bb7bc2b15, type: 3}
+  hitForce: 15
 --- !u!33 &955159699
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -1023,7 +1019,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: -255}
   m_SizeDelta: {x: 1920, y: 1080}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1845401523
@@ -1262,10 +1258,9 @@ MonoBehaviour:
   currentLevel: {fileID: 11400000, guid: 2c9d20af0ef7ef941b7ffdf040c27017, type: 2}
   autoStartLevel: 1
   effectController: {fileID: 2096920954}
-  targetPrefab: {fileID: 3248223357887562043, guid: 6fae9ecd3d388e74a9a07d6a958e17be, type: 3}
+  defaultTargetPrefab: {fileID: 3248223357887562043, guid: 6fae9ecd3d388e74a9a07d6a958e17be, type: 3}
   playerTransform: {fileID: 955159695}
   tunnel: {fileID: 2096920951}
-  scaleDuration: 0.5
   shape: 0
   gridSpacing: 4.5
   rows: 4
