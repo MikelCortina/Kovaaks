@@ -1,26 +1,24 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public class TargetSpawner : MonoBehaviour
 {
     public enum ShapeType { Rectangular, Circular }
+
+    [Header("Configuración del Nivel")]
+    public LevelDataSO currentLevel;
+    public bool autoStartLevel = true;
+    public TunnelEffectController effectController;
 
     [Header("Referencia")]
     public GameObject targetPrefab;
     public Transform playerTransform;
     public InfiniteProceduralTunnel tunnel;
 
-    [Header("Spawn Continuo")]
-    public float initialSpawnInterval = 1.5f;
-    public float minSpawnInterval = 0.2f;
-    public float difficultyRampTime = 30f;
-    public AnimationCurve difficultyCurve = AnimationCurve.Linear(0, 0, 1, 1);
-
-    [Header("Animación")]
+    [Header("Forma y Animación")]
     public float scaleDuration = 0.5f;
-
-    [Header("Forma")]
     public ShapeType shape = ShapeType.Rectangular;
     public float gridSpacing = 2f;
     public int rows = 3;
@@ -28,57 +26,119 @@ public class TargetSpawner : MonoBehaviour
     public float circleRadius = 5f;
     public int circlePoints = 8;
 
-    private float spawnTimer;
-    private float gameTime;
+    [Header("Eventos de UI")]
+    [Tooltip("Se dispara al terminar el nivel")]
+    public UnityEvent<float> OnLevelCompleted;
 
-    // NUEVO: Guardamos dónde debería estar el spawner si el túnel fuera 100% recto
+    [Tooltip("Se dispara EN TIEMPO REAL cada vez que la puntuación cambia")]
+    public UnityEvent<float> OnScoreChanged; // NUEVO EVENTO
+
+    private bool isLevelActive = false;
+    private float spawnTimer;
     private Vector3 logicalPosition;
+
+    private int enemiesSpawned = 0;
+    private int enemiesDestroyed = 0;
+    private int enemiesMissed = 0;
 
     void Start()
     {
-        // Guardamos su posición inicial recta
         logicalPosition = transform.position;
-    }
-
-    void Update()
-    {
-        // 1. EL SPAWNER AHORA NAVEGA LA CURVA: Lo movemos físicamente para que siga dentro del túnel
         if (tunnel != null)
         {
+            logicalPosition.x = tunnel.transform.position.x;
+            logicalPosition.y = tunnel.transform.position.y;
+        }
+
+        if (autoStartLevel) StartLevel();
+    }
+
+    public void StartLevel()
+    {
+        if (currentLevel == null)
+        {
+            Debug.LogError("No hay un LevelDataSO asignado en el TargetSpawner.");
+            return;
+        }
+
+        enemiesSpawned = 0;
+        enemiesDestroyed = 0;
+        enemiesMissed = 0;
+        spawnTimer = 0f;
+        isLevelActive = true;
+
+        UpdateScoreUI(); // Reseteamos la UI al 100% al empezar
+
+        Debug.Log("¡Nivel Iniciado! Total enemigos: " + currentLevel.totalEnemiesToSpawn);
+    }
+
+    public void ResetAndStartLevel()
+    {
+        isLevelActive = false;
+
+        TargetMovement[] activeEnemies = FindObjectsOfType<TargetMovement>();
+        foreach (TargetMovement enemy in activeEnemies)
+        {
+            Destroy(enemy.gameObject);
+        }
+
+        if (effectController != null)
+        {
+            effectController.ChangeEffects(new List<TunnelEffectSO>(effectController.startingEffects));
+        }
+
+        StartLevel();
+    }
+
+    void LateUpdate()
+    {
+        if (tunnel != null)
+        {
+            float maxTunnelLength = tunnel.ringCount * tunnel.ringSpacing;
+            float maxAllowedZ = tunnel.transform.position.z + maxTunnelLength - 1f;
+            float safeZ = Mathf.Min(logicalPosition.z, maxAllowedZ);
+            logicalPosition.z = safeZ;
+
             Vector2 spawnerOffset = tunnel.GetCurveOffset(logicalPosition.z);
             Vector3 curvedPos = new Vector3(logicalPosition.x + spawnerOffset.x, logicalPosition.y + spawnerOffset.y, logicalPosition.z);
             transform.position = curvedPos;
 
-            // Hacemos que el Spawner también mire hacia donde gira la curva
             float lookAheadZ = logicalPosition.z - 1f;
             Vector2 offsetAhead = tunnel.GetCurveOffset(lookAheadZ);
             Vector3 forwardPos = new Vector3(logicalPosition.x + offsetAhead.x, logicalPosition.y + offsetAhead.y, lookAheadZ);
             Vector3 pathDirection = (forwardPos - curvedPos).normalized;
 
-            if (pathDirection != Vector3.zero)
-            {
-                transform.rotation = Quaternion.LookRotation(pathDirection);
-            }
+            if (pathDirection != Vector3.zero) transform.rotation = Quaternion.LookRotation(pathDirection);
         }
 
-        // 2. Lógica normal de tiempo
-        gameTime += Time.deltaTime;
-        float difficultyPercent = Mathf.Clamp01(gameTime / difficultyRampTime);
-        float curveValue = difficultyCurve.Evaluate(difficultyPercent);
-        float currentInterval = Mathf.Lerp(initialSpawnInterval, minSpawnInterval, curveValue);
-
-        spawnTimer += Time.deltaTime;
-
-        if (spawnTimer >= currentInterval)
+        if (isLevelActive && currentLevel != null)
         {
-            SpawnOne();
-            spawnTimer = 0f;
+            if (enemiesSpawned < currentLevel.totalEnemiesToSpawn)
+            {
+                float progress = (float)enemiesSpawned / currentLevel.totalEnemiesToSpawn;
+                float curveValue = currentLevel.spawnRateCurve.Evaluate(progress);
+                float currentInterval = Mathf.Lerp(currentLevel.startSpawnInterval, currentLevel.endSpawnInterval, curveValue);
+
+                spawnTimer += Time.deltaTime;
+
+                if (spawnTimer >= currentInterval)
+                {
+                    SpawnOne();
+                    spawnTimer = 0f;
+                }
+            }
+            else
+            {
+                if (enemiesDestroyed + enemiesMissed >= currentLevel.totalEnemiesToSpawn)
+                {
+                    EndLevel();
+                }
+            }
         }
     }
 
     void SpawnOne()
     {
-        // Usamos la posición lógica para no aplicar la curva 2 veces
         List<Vector3> points = GetLogicalSpawnPoints(logicalPosition);
         if (points.Count == 0) return;
 
@@ -86,9 +146,66 @@ public class TargetSpawner : MonoBehaviour
         Vector3 direction = Vector3.back;
 
         InstantiateTarget(spawnPos, direction);
+
+        enemiesSpawned++;
+        CheckLevelEvents(enemiesSpawned);
     }
 
-    // NUEVO: Función auxiliar para calcular la cuadrícula basándose en un centro "recto"
+    private void CheckLevelEvents(int currentCount)
+    {
+        if (effectController == null) return;
+
+        foreach (var ev in currentLevel.levelEvents)
+        {
+            if (ev.spawnThreshold == currentCount)
+            {
+                foreach (var eff in ev.effectsToAdd) effectController.AddEffect(eff);
+                foreach (var eff in ev.effectsToRemove) effectController.RemoveEffect(eff);
+            }
+        }
+    }
+
+    public void RegisterEnemyDestroyed()
+    {
+        enemiesDestroyed++;
+        UpdateScoreUI(); // NUEVO: Actualizamos UI
+    }
+
+    public void RegisterEnemyMissed()
+    {
+        enemiesMissed++;
+        UpdateScoreUI(); // NUEVO: Actualizamos UI
+    }
+
+    // NUEVO: Calcula el porcentaje actual y avisa al Canvas
+    private void UpdateScoreUI()
+    {
+        int processed = enemiesDestroyed + enemiesMissed;
+        float currentAccuracy = 100f; // Por defecto empezamos al 100%
+
+        if (processed > 0)
+        {
+            currentAccuracy = ((float)enemiesDestroyed / processed) * 100f;
+        }
+
+        OnScoreChanged?.Invoke(currentAccuracy);
+    }
+
+    private void EndLevel()
+    {
+        isLevelActive = false;
+
+        float percentage = 0f;
+        if (currentLevel.totalEnemiesToSpawn > 0)
+        {
+            percentage = ((float)enemiesDestroyed / currentLevel.totalEnemiesToSpawn) * 100f;
+        }
+
+        Debug.Log($"¡NIVEL COMPLETADO! Puntuación: {percentage}% ({enemiesDestroyed} aciertos, {enemiesMissed} fallos)");
+
+        OnLevelCompleted?.Invoke(percentage);
+    }
+
     List<Vector3> GetLogicalSpawnPoints(Vector3 center)
     {
         List<Vector3> points = new List<Vector3>();
@@ -125,8 +242,7 @@ public class TargetSpawner : MonoBehaviour
 
         if (movement != null)
         {
-            // Le pasamos la posición recta al cubo, y él ya se encarga de saltar a la curva en su Initialize
-            movement.Initialize(logicalSpawnPos, direction, tunnel);
+            movement.Initialize(logicalSpawnPos, direction, tunnel, this);
         }
 
         StartCoroutine(ScaleUpAnimation(newTarget.transform));
@@ -153,9 +269,18 @@ public class TargetSpawner : MonoBehaviour
     void OnDrawGizmos()
     {
         Gizmos.color = Color.cyan;
-
-        // Si estamos en Play, usamos la lógica. Si no, la posición del editor.
         Vector3 basePos = Application.isPlaying ? logicalPosition : transform.position;
+
+        if (!Application.isPlaying && tunnel != null)
+        {
+            basePos.x = tunnel.transform.position.x;
+            basePos.y = tunnel.transform.position.y;
+
+            float maxTunnelLength = tunnel.ringCount * tunnel.ringSpacing;
+            float maxAllowedZ = tunnel.transform.position.z + maxTunnelLength - 1f;
+            basePos.z = Mathf.Min(basePos.z, maxAllowedZ);
+        }
+
         List<Vector3> logicPoints = GetLogicalSpawnPoints(basePos);
 
         foreach (var p in logicPoints)

@@ -10,6 +10,7 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         public Vector3[] localVertices;
         public float spacingToNext;
         public float internalZForNoise;
+        public int ringIndex;
     }
 
     [Header("Estructura del Túnel")]
@@ -33,26 +34,49 @@ public class InfiniteProceduralTunnel : MonoBehaviour
     public float curveY = 0f;
     public float curveFrequency = 0.05f;
 
+    [Header("Giro Continuo (Controlado por SO)")]
+    public float turnStrengthX = 0f;
+    public float turnStrengthY = 0f;
+    public float curveStartDistance = 0f;
+
+    [Header("Torsión (Controlado por SO)")]
+    [HideInInspector] public float twistDegreesPerMeter = 0f;
+
+    [Header("Rotación Global (Controlado por SO)")]
+    [HideInInspector] public float globalRotationSpeed = 0f;
+    private float currentGlobalRotation = 0f;
+
+    [Header("Respiración de Paredes (Controlado por SO)")]
+    [HideInInspector] public float wobbleSpeed = 0f;
+    [HideInInspector] public float wobbleStrength = 0f;
+    [HideInInspector] public float wobbleNoiseScale = 0f; // NUEVO: Escala del caos
+    private float currentWobbleTime = 0f;
+
     [Header("Color")]
-    public Gradient tunnelColors; // Definirá el color según la profundidad del anillo
+    public Gradient tunnelColors;
+
+    [HideInInspector] public float colorCycleSpeed = 0f;
+    private float colorOffset = 0f;
+
+    [Header("Highlight (Controlado por SO)")]
+    [HideInInspector] public bool useHighlight = false;
+    [HideInInspector] public HighlightTunnelEffectSO.HighlightMode highlightMode;
+    [HideInInspector] public Color highlightColor = Color.white;
+    [HideInInspector] public int highlightStep = 0;
 
     private Mesh mesh;
     private List<RingSnapshot> activeRings = new List<RingSnapshot>();
     private float currentInternalZ = 0f;
     private float tunnelOffset = 0f;
 
+    private int globalRingCounter = 0;
 
-    [Header("Giro Continuo (Controlado por SO)")]
-    public float turnStrengthX = 0f;
-    public float turnStrengthY = 0f;
-    public float curveStartDistance = 0f;
     void Start()
     {
         mesh = new Mesh();
         mesh.name = "Hybrid Mutability Tunnel";
         GetComponent<MeshFilter>().mesh = mesh;
 
-        // Si no hay colores asignados, creamos uno blanco por defecto
         if (tunnelColors == null)
         {
             tunnelColors = new Gradient();
@@ -67,7 +91,11 @@ public class InfiniteProceduralTunnel : MonoBehaviour
 
     void Update()
     {
+        colorOffset += colorCycleSpeed * Time.deltaTime;
         tunnelOffset -= speed * Time.deltaTime;
+        currentGlobalRotation += globalRotationSpeed * Time.deltaTime;
+
+        currentWobbleTime += wobbleSpeed * Time.deltaTime;
 
         if (tunnelOffset <= -activeRings[0].spacingToNext)
         {
@@ -101,9 +129,11 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         RingSnapshot ring = activeRings[index];
         ring.spacingToNext = ringSpacing;
 
+        float twistRotationRadians = (ring.internalZForNoise * twistDegreesPerMeter) * Mathf.Deg2Rad;
+
         for (int s = 0; s <= segments; s++)
         {
-            float angle = (s / (float)segments) * Mathf.PI * 2f;
+            float angle = ((s / (float)segments) * Mathf.PI * 2f) + twistRotationRadians;
             float cos = Mathf.Cos(angle);
             float sin = Mathf.Sin(angle);
 
@@ -123,11 +153,13 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         newRing.localVertices = new Vector3[segments + 1];
         newRing.internalZForNoise = currentInternalZ;
         newRing.spacingToNext = ringSpacing;
+        newRing.ringIndex = globalRingCounter;
 
         activeRings.Add(newRing);
         UpdateRingData(activeRings.Count - 1);
 
         currentInternalZ += ringSpacing;
+        globalRingCounter++;
     }
 
     void UpdateMeshGeometry()
@@ -141,27 +173,25 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         for (int i = 0; i < ringsBehindPlayer; i++) startOffsetZ -= activeRings[i].spacingToNext;
         float currentZ = startOffsetZ + tunnelOffset;
 
+        float globalRad = currentGlobalRotation * Mathf.Deg2Rad;
+        float cosGlobal = Mathf.Cos(globalRad);
+        float sinGlobal = Mathf.Sin(globalRad);
+
         for (int r = 0; r < ringCount; r++)
         {
-            float depthPercent = (float)r / (ringCount - 1);
+            float baseDepth = (float)r / (ringCount - 1);
+            float depthPercent = Mathf.Repeat(baseDepth + colorOffset, 1f);
             Color ringColor = tunnelColors.Evaluate(depthPercent);
 
-            // 1. Curva de serpiente (Ondas)
             float absoluteZ = activeRings[r].internalZForNoise;
             float waveOffsetX = Mathf.Sin(absoluteZ * curveFrequency) * curveX;
             float waveOffsetY = Mathf.Cos(absoluteZ * curveFrequency) * curveY;
 
-            // 2. NUEVO: Giro continuo (Parábola)
-            // Calculamos cuánta distancia ha pasado desde el "punto de inicio" de la curva
             float distanceAhead = Mathf.Max(0, currentZ - curveStartDistance);
-
-            // Elevamos al cuadrado la distancia para lograr un giro suave pero constante (multiplicado por 0.001 para suavizar valores)
             float bendFactor = (distanceAhead * distanceAhead) * 0.001f;
-
             float continuousOffsetX = turnStrengthX * bendFactor;
             float continuousOffsetY = turnStrengthY * bendFactor;
 
-            // Sumamos ambas curvas
             float finalOffsetX = waveOffsetX + continuousOffsetX;
             float finalOffsetY = waveOffsetY + continuousOffsetY;
 
@@ -170,10 +200,47 @@ public class InfiniteProceduralTunnel : MonoBehaviour
                 int index = r * (segments + 1) + s;
                 Vector3 localPos = activeRings[r].localVertices[s];
 
-                // Aplicamos los offsets finales
-                vertices[index] = new Vector3(localPos.x + finalOffsetX, localPos.y + finalOffsetY, currentZ);
+                // NUEVO: Respiración aleatoria (Wobble Caótico con Perlin Noise)
+                if (wobbleStrength > 0f)
+                {
+                    // Usamos las coordenadas normalizadas del círculo (Seno/Coseno) y la Z para generar un punto en un espacio 3D
+                    float angle = (s / (float)segments) * Mathf.PI * 2f;
+                    float circleX = Mathf.Cos(angle);
+                    float circleY = Mathf.Sin(angle);
+
+                    // Generamos ruido Perlin que fluye con el tiempo
+                    float noiseX = Mathf.PerlinNoise(circleX * wobbleNoiseScale + currentWobbleTime, absoluteZ * 0.1f * wobbleNoiseScale);
+                    float noiseY = Mathf.PerlinNoise(circleY * wobbleNoiseScale - currentWobbleTime, absoluteZ * 0.1f * wobbleNoiseScale);
+
+                    // Centramos el ruido (-1 a 1)
+                    float chaoticWobble = ((noiseX + noiseY) - 1f);
+
+                    Vector3 directionFromCenter = localPos.normalized;
+                    localPos += directionFromCenter * (chaoticWobble * wobbleStrength);
+                }
+
+                float xBase = localPos.x + finalOffsetX;
+                float yBase = localPos.y + finalOffsetY;
+
+                float xRotated = xBase * cosGlobal - yBase * sinGlobal;
+                float yRotated = xBase * sinGlobal + yBase * cosGlobal;
+
+                vertices[index] = new Vector3(xRotated, yRotated, currentZ);
                 uvs[index] = new Vector2((float)s / segments, (float)r / ringCount);
-                colors[index] = ringColor;
+
+                Color finalVertexColor = ringColor;
+                if (useHighlight && highlightStep > 0)
+                {
+                    if (highlightMode == HighlightTunnelEffectSO.HighlightMode.Longitudinal)
+                    {
+                        if (s % highlightStep == 0) finalVertexColor = highlightColor;
+                    }
+                    else if (highlightMode == HighlightTunnelEffectSO.HighlightMode.Transversal)
+                    {
+                        if (activeRings[r].ringIndex % highlightStep == 0) finalVertexColor = highlightColor;
+                    }
+                }
+                colors[index] = finalVertexColor;
             }
             currentZ += activeRings[r].spacingToNext;
         }
@@ -194,14 +261,14 @@ public class InfiniteProceduralTunnel : MonoBehaviour
             int oldIndex = baseTriangles[i];
             flatVertices[i] = vertices[oldIndex];
             flatUvs[i] = uvs[oldIndex];
-            flatColors[i] = colors[oldIndex]; // Aplanamos el array de colores también
+            flatColors[i] = colors[oldIndex];
             flatTriangles[i] = i;
         }
 
         mesh.Clear();
         mesh.vertices = flatVertices;
         mesh.uv = flatUvs;
-        mesh.colors = flatColors; // Asignamos los colores al mesh
+        mesh.colors = flatColors;
         mesh.triangles = flatTriangles;
         mesh.RecalculateNormals();
     }
@@ -231,7 +298,7 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         for (int i = 0; i < ringsBehindPlayer; i++) startOffsetZ -= activeRings[i].spacingToNext;
         float firstRingWorldZ = startOffsetZ + tunnelOffset;
 
-        if (worldZ <= firstRingWorldZ) return GetRingOffset(0, firstRingWorldZ);
+        if (worldZ <= firstRingWorldZ) return GetRingOffsetRotated(0, firstRingWorldZ);
 
         float currentZ = firstRingWorldZ;
         for (int i = 0; i < activeRings.Count - 1; i++)
@@ -241,20 +308,18 @@ public class InfiniteProceduralTunnel : MonoBehaviour
             if (worldZ >= currentZ && worldZ <= nextZ)
             {
                 float percent = (worldZ - currentZ) / (nextZ - currentZ);
-                Vector2 offsetA = GetRingOffset(i, currentZ);
-                Vector2 offsetB = GetRingOffset(i + 1, nextZ);
+                Vector2 offsetA = GetRingOffsetRotated(i, currentZ);
+                Vector2 offsetB = GetRingOffsetRotated(i + 1, nextZ);
 
                 return Vector2.Lerp(offsetA, offsetB, percent);
             }
             currentZ = nextZ;
         }
 
-        // CORRECCIÓN: Usamos worldZ en lugar de currentZ. 
-        // Así, si el spawner está más lejos que el final del túnel, la curva parabólica se sigue calculando en el vacío.
-        return GetRingOffset(activeRings.Count - 1, worldZ);
+        return GetRingOffsetRotated(activeRings.Count - 1, worldZ);
     }
 
-    private Vector2 GetRingOffset(int ringIndex, float ringWorldZ)
+    private Vector2 GetRingOffsetRotated(int ringIndex, float ringWorldZ)
     {
         float absoluteZ = activeRings[ringIndex].internalZForNoise;
 
@@ -266,6 +331,16 @@ public class InfiniteProceduralTunnel : MonoBehaviour
         float continuousOffsetX = turnStrengthX * bendFactor;
         float continuousOffsetY = turnStrengthY * bendFactor;
 
-        return new Vector2(waveOffsetX + continuousOffsetX, waveOffsetY + continuousOffsetY);
+        float xBase = waveOffsetX + continuousOffsetX;
+        float yBase = waveOffsetY + continuousOffsetY;
+
+        float globalRad = currentGlobalRotation * Mathf.Deg2Rad;
+        float cosGlobal = Mathf.Cos(globalRad);
+        float sinGlobal = Mathf.Sin(globalRad);
+
+        float xRotated = xBase * cosGlobal - yBase * sinGlobal;
+        float yRotated = xBase * sinGlobal + yBase * cosGlobal;
+
+        return new Vector2(xRotated, yRotated);
     }
 }

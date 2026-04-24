@@ -50,4 +50,4 @@ MonoBehaviour:
     m_NumAlphaKeys: 2
   turnStrengthX: 5
   turnStrengthY: 0
-  curveStartDistance: 150
+  curveStartDistance: 125

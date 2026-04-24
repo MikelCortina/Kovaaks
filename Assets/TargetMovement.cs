@@ -7,40 +7,49 @@ public class TargetMovement : MonoBehaviour
 
     private Vector3 basePosition;
     private InfiniteProceduralTunnel tunnelRef;
+    private TargetSpawner spawnerRef; // Referencia al Spawner para mandar la puntuación
+
+    private bool hasBeenProcessed = false; // Evita puntuar dos veces
 
     public Vector3 MoveDirection => moveDirection;
 
-    public void Initialize(Vector3 startPos, Vector3 direction, InfiniteProceduralTunnel tunnel)
+    // NUEVO: Añadimos el TargetSpawner al Initialize
+    public void Initialize(Vector3 startPos, Vector3 direction, InfiniteProceduralTunnel tunnel, TargetSpawner spawner)
     {
         basePosition = startPos;
         moveDirection = direction;
         tunnelRef = tunnel;
+        spawnerRef = spawner;
 
-        // NUEVO: Calculamos la curva y rotación en el frame 0. 
-        // Así nunca lo verás atravesar la pared al spawnear.
         UpdateVisualPosition();
     }
 
-    void Update()
+    void LateUpdate()
     {
-        // 1. Avanzamos la posición lógica (recta)
         basePosition += moveDirection * speed * Time.deltaTime;
-
-        // 2. Aplicamos la curva
         UpdateVisualPosition();
+
+        // Si el cubo ha pasado por detrás de la cámara del jugador (se considera fallo)
+        if (!hasBeenProcessed && spawnerRef != null)
+        {
+            if (basePosition.z < spawnerRef.playerTransform.position.z - 2f)
+            {
+                hasBeenProcessed = true;
+                spawnerRef.RegisterEnemyMissed();
+                Destroy(gameObject); // Lo destruimos para limpiar memoria
+            }
+        }
     }
 
     private void UpdateVisualPosition()
     {
         if (tunnelRef != null)
         {
-            // Posición actual curvada
             Vector2 offset = tunnelRef.GetCurveOffset(basePosition.z);
             Vector3 finalPos = new Vector3(basePosition.x + offset.x, basePosition.y + offset.y, basePosition.z);
 
             transform.position = finalPos;
 
-            // Rotación mirando hacia el siguiente punto de la curva
             float lookAheadZ = basePosition.z - 1f;
             Vector2 offsetAhead = tunnelRef.GetCurveOffset(lookAheadZ);
             Vector3 finalPosAhead = new Vector3(basePosition.x + offsetAhead.x, basePosition.y + offsetAhead.y, lookAheadZ);
@@ -57,8 +66,16 @@ public class TargetMovement : MonoBehaviour
         }
     }
 
+    // Esta es la función a la que llamas cuando le disparas
     public void TakeDamage()
     {
-        GetComponent<ShatterOnDestroy>().Shatter();
+        if (!hasBeenProcessed)
+        {
+            hasBeenProcessed = true;
+            if (spawnerRef != null) spawnerRef.RegisterEnemyDestroyed();
+
+            GetComponent<ShatterOnDestroy>().Shatter(); // Tu script de rotura
+            // Asumo que tu script Shatter destruye o desactiva este GameObject
+        }
     }
 }
