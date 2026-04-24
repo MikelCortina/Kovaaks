@@ -9,15 +9,12 @@ public class TargetSpawner : MonoBehaviour
     [Header("Referencia")]
     public GameObject targetPrefab;
     public Transform playerTransform;
+    public InfiniteProceduralTunnel tunnel;
 
     [Header("Spawn Continuo")]
     public float initialSpawnInterval = 1.5f;
     public float minSpawnInterval = 0.2f;
-
-    [Tooltip("Cada cuantos segundos aumenta la dificultad")]
     public float difficultyRampTime = 30f;
-
-    [Tooltip("Curva de dificultad (X = tiempo, Y = velocidad)")]
     public AnimationCurve difficultyCurve = AnimationCurve.Linear(0, 0, 1, 1);
 
     [Header("Animación")]
@@ -28,20 +25,46 @@ public class TargetSpawner : MonoBehaviour
     public float gridSpacing = 2f;
     public int rows = 3;
     public int columns = 3;
-
     public float circleRadius = 5f;
     public int circlePoints = 8;
 
     private float spawnTimer;
     private float gameTime;
 
+    // NUEVO: Guardamos dónde debería estar el spawner si el túnel fuera 100% recto
+    private Vector3 logicalPosition;
+
+    void Start()
+    {
+        // Guardamos su posición inicial recta
+        logicalPosition = transform.position;
+    }
+
     void Update()
     {
-        gameTime += Time.deltaTime;
+        // 1. EL SPAWNER AHORA NAVEGA LA CURVA: Lo movemos físicamente para que siga dentro del túnel
+        if (tunnel != null)
+        {
+            Vector2 spawnerOffset = tunnel.GetCurveOffset(logicalPosition.z);
+            Vector3 curvedPos = new Vector3(logicalPosition.x + spawnerOffset.x, logicalPosition.y + spawnerOffset.y, logicalPosition.z);
+            transform.position = curvedPos;
 
+            // Hacemos que el Spawner también mire hacia donde gira la curva
+            float lookAheadZ = logicalPosition.z - 1f;
+            Vector2 offsetAhead = tunnel.GetCurveOffset(lookAheadZ);
+            Vector3 forwardPos = new Vector3(logicalPosition.x + offsetAhead.x, logicalPosition.y + offsetAhead.y, lookAheadZ);
+            Vector3 pathDirection = (forwardPos - curvedPos).normalized;
+
+            if (pathDirection != Vector3.zero)
+            {
+                transform.rotation = Quaternion.LookRotation(pathDirection);
+            }
+        }
+
+        // 2. Lógica normal de tiempo
+        gameTime += Time.deltaTime;
         float difficultyPercent = Mathf.Clamp01(gameTime / difficultyRampTime);
         float curveValue = difficultyCurve.Evaluate(difficultyPercent);
-
         float currentInterval = Mathf.Lerp(initialSpawnInterval, minSpawnInterval, curveValue);
 
         spawnTimer += Time.deltaTime;
@@ -55,24 +78,24 @@ public class TargetSpawner : MonoBehaviour
 
     void SpawnOne()
     {
-        List<Vector3> points = GetAllSpawnPoints();
-
+        // Usamos la posición lógica para no aplicar la curva 2 veces
+        List<Vector3> points = GetLogicalSpawnPoints(logicalPosition);
         if (points.Count == 0) return;
 
         Vector3 spawnPos = points[Random.Range(0, points.Count)];
-
-        Vector3 direction = (playerTransform.position - transform.position).normalized;
+        Vector3 direction = Vector3.back;
 
         InstantiateTarget(spawnPos, direction);
     }
 
-    List<Vector3> GetAllSpawnPoints()
+    // NUEVO: Función auxiliar para calcular la cuadrícula basándose en un centro "recto"
+    List<Vector3> GetLogicalSpawnPoints(Vector3 center)
     {
         List<Vector3> points = new List<Vector3>();
 
         if (shape == ShapeType.Rectangular)
         {
-            Vector3 startPos = transform.position - new Vector3((columns - 1) * gridSpacing / 2f, (rows - 1) * gridSpacing / 2f, 0);
+            Vector3 startPos = center - new Vector3((columns - 1) * gridSpacing / 2f, (rows - 1) * gridSpacing / 2f, 0);
 
             for (int x = 0; x < columns; x++)
             {
@@ -89,24 +112,22 @@ public class TargetSpawner : MonoBehaviour
             for (int i = 0; i < circlePoints; i++)
             {
                 float angle = i * angleStep * Mathf.Deg2Rad;
-
-                points.Add(transform.position +
-                    new Vector3(Mathf.Cos(angle) * circleRadius,
-                                Mathf.Sin(angle) * circleRadius, 0));
+                points.Add(center + new Vector3(Mathf.Cos(angle) * circleRadius, Mathf.Sin(angle) * circleRadius, 0));
             }
         }
-
         return points;
     }
 
-    void InstantiateTarget(Vector3 position, Vector3 direction)
+    void InstantiateTarget(Vector3 logicalSpawnPos, Vector3 direction)
     {
-        GameObject newTarget = Instantiate(targetPrefab, position, Quaternion.identity);
-
+        GameObject newTarget = Instantiate(targetPrefab, logicalSpawnPos, Quaternion.identity);
         TargetMovement movement = newTarget.GetComponent<TargetMovement>();
 
         if (movement != null)
-            movement.SetDirection(direction);
+        {
+            // Le pasamos la posición recta al cubo, y él ya se encarga de saltar a la curva en su Initialize
+            movement.Initialize(logicalSpawnPos, direction, tunnel);
+        }
 
         StartCoroutine(ScaleUpAnimation(newTarget.transform));
     }
@@ -114,37 +135,38 @@ public class TargetSpawner : MonoBehaviour
     IEnumerator ScaleUpAnimation(Transform t)
     {
         Vector3 finalScale = targetPrefab.transform.localScale;
-
         t.localScale = Vector3.zero;
-
         float timer = 0f;
 
         while (timer < scaleDuration)
         {
             if (t == null) yield break;
-
             timer += Time.deltaTime;
-
             float percent = timer / scaleDuration;
-
             t.localScale = Vector3.Lerp(Vector3.zero, finalScale, percent);
-
             yield return null;
         }
 
-        if (t != null)
-            t.localScale = finalScale;
+        if (t != null) t.localScale = finalScale;
     }
 
     void OnDrawGizmos()
     {
         Gizmos.color = Color.cyan;
 
-        var points = GetAllSpawnPoints();
+        // Si estamos en Play, usamos la lógica. Si no, la posición del editor.
+        Vector3 basePos = Application.isPlaying ? logicalPosition : transform.position;
+        List<Vector3> logicPoints = GetLogicalSpawnPoints(basePos);
 
-        foreach (var p in points)
+        foreach (var p in logicPoints)
         {
-            Gizmos.DrawWireSphere(p, 0.3f);
+            Vector3 drawPos = p;
+            if (tunnel != null)
+            {
+                Vector2 offset = tunnel.GetCurveOffset(p.z);
+                drawPos = new Vector3(p.x + offset.x, p.y + offset.y, p.z);
+            }
+            Gizmos.DrawWireSphere(drawPos, 0.3f);
         }
     }
 }
